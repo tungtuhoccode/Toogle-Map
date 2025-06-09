@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Visualize Overpass Data + Shortest Path</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link
+      href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 10;
+        padding: 0;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+    <!-- turf for distance & bbox -->
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+    <script>
+      // 1️⃣ Initialize the map
+      const map = new maplibregl.Map({
+        container: "map",
+        style:
+          "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+        center: [-75.7, 45.39],
+        zoom: 13,
+      });
+      map.addControl(new maplibregl.NavigationControl());
+
+      map.on("load", () => {
+        fetch("../Data-Collection/medium.geojson")
+          .then((res) => res.json())
+          .then((geojson) => {
+            // draw all ways as red lines
+            map.addSource("ways", { type: "geojson", data: geojson });
+            map.addLayer({
+              id: "way-lines",
+              type: "line",
+              source: "ways",
+              layout: { "line-join": "round", "line-cap": "round" },
+              paint: { "line-color": "#e31a1c", "line-width": 2 },
+            });
+
+            // fit map to data
+            const bbox = turf.bbox(geojson);
+            map.fitBounds(bbox, { padding: 20 });
+
+            // ── build graph ──────────────────────────────────────────────────────
+            // adjacency: { "lon,lat": [ {to:"lon,lat", weight:KMs}, ... ] }
+            const graph = {};
+            function key(pt) {
+              return pt[0] + "," + pt[1];
+            }
+
+            geojson.features.forEach((f) => {
+              const coords = f.geometry.coordinates;
+              for (let i = 1; i < coords.length; i++) {
+                const a = coords[i - 1],
+                  b = coords[i],
+                  A = key(a),
+                  B = key(b),
+                  d = turf.distance(turf.point(a), turf.point(b), {
+                    units: "kilometers",
+                  });
+                graph[A] = graph[A] || [];
+                graph[B] = graph[B] || [];
+                graph[A].push({ to: B, weight: d });
+                graph[B].push({ to: A, weight: d });
+              }
+            });
+
+            const nodeFeatures = Object.keys(graph).map((k) => {
+              const [lon, lat] = k.split(",").map(Number);
+              return {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [lon, lat] },
+                properties: {},
+              };
+            });
+            const nodesGeo = {
+              type: "FeatureCollection",
+              features: nodeFeatures,
+            };
+            map.addSource("graph-nodes", { type: "geojson", data: nodesGeo });
+            map.addLayer({
+              id: "graph-node-points",
+              type: "circle",
+              source: "graph-nodes",
+              paint: {
+                "circle-radius": 4,
+                "circle-color": "#2ECC40",
+                "circle-stroke-width": 1,
+                "circle-stroke-color": "#fff",
+              },
+            });
+          })
+          .catch((err) => console.error("Failed to load data:", err));
+      });
+    </script>
+  </body>
+</html>

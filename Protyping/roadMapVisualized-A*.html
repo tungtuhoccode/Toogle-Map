@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Visualize Overpass Data + Animated Dijkstra</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100% }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <!-- turf for distance & bbox -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      style:   "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    map.on('load', () => {
+      fetch('../Data-Collection/small.geojson')
+        .then(res => res.json())
+        .then(async geojson => {
+          // 1️⃣ Draw all ways in light gray
+          map.addSource('ways', { type:'geojson', data:geojson });
+          map.addLayer({
+            id: 'way-lines',
+            type: 'line',
+            source: 'ways',
+            layout: { 'line-join':'round','line-cap':'round' },
+            paint:  { 'line-color':'#ccc','line-width':2 }
+          });
+
+          // 2️⃣ Fit to data
+          map.fitBounds(turf.bbox(geojson), { padding:20 });
+
+          // 3️⃣ Build graph
+          const graph = {};
+          function key(pt){ return pt[0]+','+pt[1]; }
+          geojson.features.forEach(f => {
+            const coords = f.geometry.coordinates;
+            for(let i=1; i<coords.length; i++){
+              const [a,b] = [coords[i-1], coords[i]],
+                    A=key(a), B=key(b),
+                    d=turf.distance(turf.point(a), turf.point(b), {units:'kilometers'});
+              graph[A] = graph[A]||[];
+              graph[B] = graph[B]||[];
+              graph[A].push({to:B, weight:d});
+              graph[B].push({to:A, weight:d});
+            }
+          });
+
+          // 4️⃣ Add node layer (green dots)
+          const nodeFeatures = Object.keys(graph).map(k => {
+            const [lon, lat] = k.split(',').map(Number);
+            return { type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{} };
+          });
+          map.addSource('graph-nodes', {
+            type:'geojson',
+            data:{ type:'FeatureCollection', features:nodeFeatures }
+          });
+          map.addLayer({
+            id:'graph-node-points',
+            type:'circle',
+            source:'graph-nodes',
+            paint:{
+              'circle-radius': 3,
+              'circle-color':'#2ECC40',
+              'circle-stroke-width':1,
+              'circle-stroke-color':'#fff'
+            }
+          });
+
+          // 5️⃣ Prepare empty layer for visited nodes (orange)
+          map.addSource('visited-nodes', {
+            type:'geojson',
+            data:{ type:'FeatureCollection', features:[] }
+          });
+          map.addLayer({
+            id:'visited-node-points',
+            type:'circle',
+            source:'visited-nodes',
+            paint:{
+              'circle-radius': 3,
+              'circle-color':'#FF851B',
+              'circle-opacity': 1
+            }
+          });
+
+          // 6️⃣ Dijkstra as an async generator
+           const coords = {};
+    Object.keys(graph).forEach(key => {
+      // key is "lon,lat"
+      const [lon, lat] = key.split(',').map(Number);
+      coords[key] = [lon, lat];
+    });
+
+    // 6️⃣ ▲ Replace Dijkstra with A*
+    async function* aStarGen(graph, coords, start, goal) {
+      // gScore = cost from start to node; fScore = gScore + heuristic
+      const gScore = {}, fScore = {}, prev = {};
+      const openSet = new Set();
+
+      // initialize
+      Object.keys(graph).forEach(u => {
+        gScore[u] = Infinity;
+        fScore[u] = Infinity;
+      });
+      gScore[start] = 0;
+      // heuristic: straight‐line distance in km
+      const heuristic = (u, v) => {
+        const [lon1, lat1] = coords[u];
+        const [lon2, lat2] = coords[v];
+        return turf.distance(turf.point([lon1, lat1]), turf.point([lon2, lat2]), { units: 'kilometers' });
+      };
+      fScore[start] = heuristic(start, goal);
+      openSet.add(start);
+
+      while (openSet.size) {
+        // pick node in openSet with lowest fScore
+        let u = null;
+        for (let node of openSet) {
+          if (u === null || fScore[node] < fScore[u]) u = node;
+        }
+
+        // report current visit
+        yield { visiting: u, dist: { ...gScore } };
+
+        if (u === goal) break;
+
+        openSet.delete(u);
+        for (const { to: v, weight: w } of graph[u]) {
+          const tentative = gScore[u] + w;
+          if (tentative < gScore[v]) {
+            prev[v] = u;
+            gScore[v] = tentative;
+            fScore[v] = tentative + heuristic(v, goal);
+            openSet.add(v);
+          }
+        }
+      }
+
+      // reconstruct path
+      if (gScore[goal] === Infinity) return null;
+      const path = [];
+      let u = goal;
+      while (u) {
+        path.unshift(u);
+        u = prev[u];
+      }
+      return path;
+    }
+
+    // 7️⃣ Run and animate (just swap in aStarGen)
+    const startKey = key(geojson.features[0].geometry.coordinates[0]);
+    const lastFeat = geojson.features[geojson.features.length-1];
+    const endKey   = key(lastFeat.geometry.coordinates.slice(-1)[0]);
+    const gen = aStarGen(graph, coords, startKey, endKey);
+
+          let step;
+          const visitedFeatures = [];
+          while(!(step = await gen.next()).done){
+            const { visiting } = step.value;
+            // add visiting node to visitedFeatures
+            const [lon,lat] = visiting.split(',').map(Number);
+            visitedFeatures.push({
+              type:'Feature',
+              geometry:{ type:'Point', coordinates:[lon,lat] },
+              properties:{}
+            });
+            // update source
+            map.getSource('visited-nodes').setData({
+              type:'FeatureCollection',
+              features: visitedFeatures
+            });
+            await new Promise(r => setTimeout(r, 0));  // pause 100ms between steps
+          }
+          const shortest = step.value; // final return = the path array
+          if(!shortest) return console.warn('no path');
+
+          // 8️⃣ Draw final path in blue
+          const pathCoords = shortest.map(k => k.split(',').map(Number));
+          map.addSource('shortest-path', {
+            type:'geojson',
+            data:{
+              type:'FeatureCollection',
+              features:[{
+                type:'Feature',
+                geometry:{type:'LineString',coordinates:pathCoords},
+                properties:{}
+              }]
+            }
+          });
+          map.addLayer({
+            id:'shortest-path-line',
+            type:'line',
+            source:'shortest-path',
+            layout:{ 'line-join':'round','line-cap':'round' },
+            paint:{ 'line-color':'#0074D9','line-width':4 }
+          });
+        })
+        .catch(err => console.error(err));
+    });
+  </script>
+</body>
+</html>
