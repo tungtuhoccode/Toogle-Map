@@ -32,7 +32,7 @@
       // 3️⃣ Add your vector-tile source
       map.addSource('graph-tiles', {
         type: 'vector',
-        tiles: ['http://localhost:8080/data/new-super-huge/{z}/{x}/{y}.pbf'],
+        tiles: ['http://localhost:8080/data/huge/{z}/{x}/{y}.pbf'],
         minzoom: 0,
         maxzoom: 14,
         buffer: 128
@@ -109,7 +109,6 @@
 
       // 8️⃣ Listen for each tile loaded from 'graph-tiles'
       map.on('sourcedata', (e) => {
-
 
         if (e.sourceId === 'graph-tiles') {
           // pull in all features from the 'graph' layer of the tile
