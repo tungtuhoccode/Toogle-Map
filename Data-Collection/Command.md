@@ -86,6 +86,34 @@ curl -G "https://overpass-api.de/api/interpreter" \
     out geom;' \
   > new-super-huge.json
 
+### Query 7: Ottawa Area
+curl -G "https://overpass-api.de/api/interpreter" \
+  --data-urlencode 'data=[out:json][timeout:25];
+    (
+      way
+        ["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"]
+        (
+          poly:"45.3659678809054 -75.8311801056978 \
+                45.30417292966152 -75.78920380124758 \
+                45.30620488256068 -75.71620401865331 \
+                45.31232581275083 -75.6875781571408 \
+                45.2983529716023  -75.65525363414406 \
+                45.33012440936898 -75.59010741934313 \
+                45.36830985864438 -75.59422777601678 \
+                45.38754619352463 -75.57299515948517 \
+                45.41669093509273 -75.58128472766849 \
+                45.4321223584611  -75.59666827604346 \
+                45.464480887695174 -75.61403711130653 \
+                45.469728654250986 -75.63520567882485 \
+                45.46507636028406 -75.67630933628575 \
+                45.4481797682877  -75.71036288308655 \
+                45.3659678809054  -75.8311801056978"
+        );
+    );
+    out geom;' \
+  > medium-ottawa-area.json
+
+
 ### Conversion
 1. Step 1: Convert to geojson. 
   $ node --max_old_space_size=8192 `which osmtogeojson` super-huge.json > super-huge.geojson

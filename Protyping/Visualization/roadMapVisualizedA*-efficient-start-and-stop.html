@@ -38,7 +38,7 @@
     });
     map.addControl(new maplibregl.NavigationControl());
     map.on('load', () => {
-      fetch('../../Data-Collection/medium.geojson')
+      fetch('../../Data-Collection/medium-ottawa-area.geojson')
         .then(res => res.json())
         .then(async geojson => {
           // --- build graph & ID/coord maps ---
@@ -76,9 +76,9 @@
             type: 'circle',
             source: 'visited-nodes',
             paint: {
-              'circle-radius': 3,
+              'circle-radius': 2,
               'circle-opacity': 1,
-              'circle-stroke-width': 1,
+              'circle-stroke-width': .5,
               'circle-stroke-color': '#fff',
               'circle-color': [
                 'case',
