@@ -37,7 +37,6 @@
       zoom: 13
     });
     map.addControl(new maplibregl.NavigationControl());
-
     map.on('load', () => {
       fetch('../../Data-Collection/medium.geojson')
         .then(res => res.json())

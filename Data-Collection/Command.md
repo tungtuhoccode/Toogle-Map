@@ -66,19 +66,57 @@ curl -G "https://overpass-api.de/api/interpreter" \
     out geom;' \
   > super-huge.json
 
-Step 1: Convert to geojson. 
+### Query 6: Suppppppppppper HUGE
+curl -G "https://overpass-api.de/api/interpreter" \
+  --data-urlencode 'data=[out:json][timeout:25];
+    (
+      way
+        ["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"]
+        (
+          poly:"43.88997559240056 -80.43510185607934 \
+                43.089726298776014 -80.99163944416655 \
+                43.11144064770991 -79.31232069803184 \
+                43.75364925661475 -77.16587114509527 \
+                45.09489519675449 -74.49270721094993 \
+                45.59775122444637 -74.73121746841782 \
+                46.137438516296896 -77.0466681613953 \
+                43.88997559240056 -80.43510185607934"
+        );
+    );
+    out geom;' \
+  > new-super-huge.json
+
+### Conversion
+1. Step 1: Convert to geojson. 
   $ node --max_old_space_size=8192 `which osmtogeojson` super-huge.json > super-huge.geojson
 
-Step 2: Convert to mbtiles
+2. Step 2: Convert to mbtiles
+tippecanoe \
+  -o new-super-huge.mbtiles \
+  --layer=graph \
+  --drop-densest-as-needed \
+  --extend-zooms-if-still-dropping \
+  --generate-ids \
+  new-super-huge.geojson
+
+//keep dense lines
+tippecanoe \
+  -o new-super-huge.mbtiles \
+  --layer=highways \
+  --minimum-zoom=0 \
+  --maximum-zoom=14 \
+  --no-feature-limit       \
+  --no-tile-size-limit     \
+  --generate-ids           \
+  new-super-huge.geojson
+
+3. Step 3: Start the mp-tiles server 
+
 docker run --rm -it \
   -v "$(pwd)/Mb-tiles-server":/data \
   -p 8080:8080 \
   maptiler/tileserver-gl
 
-Step 3: Start the mp-tiles server 
-
-
-### Command 4 to start the mp-tiles server
 docker run --rm -it \
   -v path/to/dataFolder:/data \
   -p 8080:8080 \

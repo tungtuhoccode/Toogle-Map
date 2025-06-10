@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Vector Tile Graph with Node Tracking</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100% }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script>
+   
+
+    // 2️⃣ Initialize the map
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    map.on('load', () => {
+      // 3️⃣ Add your vector-tile source
+      map.addSource('graph-tiles', {
+        type: 'vector',
+        tiles: ['http://localhost:8080/data/huge/{z}/{x}/{y}.pbf'],
+        minzoom: 0,
+        maxzoom: 14,
+        buffer: 128
+      });
+
+      // 4️⃣ Draw polygons
+      map.addLayer({
+        id: 'graph-fill',
+        type: 'fill',
+        source: 'graph-tiles',
+        'source-layer': 'graph',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: {
+          'fill-color': 'rgba(0,120,200,0.2)',
+          'fill-outline-color': 'rgba(0,120,200,0.6)'
+        }
+      });
+
+      // 5️⃣ Draw lines
+      map.addLayer({
+        id: 'graph-line',
+        type: 'line',
+        source: 'graph-tiles',
+        'source-layer': 'graph',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: {
+          'line-color': '#0078C8',
+          'line-width': 1.5
+        }
+      });
+
+      // 6️⃣ Draw raw tile points
+      map.addLayer({
+        id: 'graph-point',
+        type: 'circle',
+        source: 'graph-tiles',
+        'source-layer': 'graph',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 4,
+          'circle-color': '#D80032',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1
+        }
+      });
+
+
+
+       // 1️⃣ Keep track of nodes we've already seen
+    const seenNodeIds = new Set();
+
+    // this will collect only the de-duplicated point features
+    const nodesGeoJSON = {
+      type: 'FeatureCollection',
+      features: []
+    };
+
+          // 7️⃣ Create an empty GeoJSON source for our de-duplicated nodes
+      map.addSource('node-source', {
+        type: 'geojson',
+        data: nodesGeoJSON
+      });
+      map.addLayer({
+        id: 'node-layer',
+        type: 'circle',
+        source: 'node-source',
+        paint: {
+          'circle-radius': 2,
+          'circle-color': '#2ECC40',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 0.5
+        }
+      });
+
+      // 8️⃣ Listen for each tile loaded from 'graph-tiles'
+      map.on('sourcedata', (e) => {
+
+
+        if (e.sourceId === 'graph-tiles') {
+          // pull in all features from the 'graph' layer of the tile
+          const feats = map.querySourceFeatures('graph-tiles', {
+            sourceLayer: 'graph'
+          });
+
+          console.log(feats)
+
+          let anyNew = false;
+          for (const f of feats) {
+            if (f.geometry.type === 'LineString') {
+              // use f.id if present, otherwise fall back to coords
+              const key = f.id != null
+                ? f.id
+                : f.geometry.coordinates.join(',');
+
+              if (!seenNodeIds.has(key)) {
+                seenNodeIds.add(key);
+                nodesGeoJSON.features.push({
+                  type: 'Feature',
+                  geometry: f.geometry,
+                  properties: f.properties
+                });
+                anyNew = true;
+              }
+            }
+          }
+
+          // only update the GeoJSON source when new points arrive
+          if (anyNew) {
+            map.getSource('node-source').setData(nodesGeoJSON);
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
