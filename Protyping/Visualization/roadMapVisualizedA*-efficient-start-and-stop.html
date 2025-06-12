@@ -21,11 +21,23 @@
       cursor: pointer;
       font-family: sans-serif;
     }
+    #toggle-visited-btn {
+  position: absolute;
+  top: 50px;
+  left: 10px;
+  z-index: 1;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #ccc;
+  cursor: pointer;
+  font-family: sans-serif;
+}
   </style>
 </head>
 <body>
   <div id="map"></div>
   <button id="start-btn">Start</button>
+  <button id="toggle-visited-btn">Hide Visited Nodes</button>
 
   <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
@@ -38,7 +50,7 @@
     });
     map.addControl(new maplibregl.NavigationControl());
     map.on('load', () => {
-      fetch('../../Data-Collection/medium-ottawa-area.geojson')
+      fetch('../../Data-Collection/large-ottawa-area.geojson')
         .then(res => res.json())
         .then(async geojson => {
           // --- build graph & ID/coord maps ---
@@ -238,6 +250,23 @@
 
             btn.textContent = 'Done';
           });
+
+          // keep track of whether the layer is visible
+let visitedVisible = true;
+
+// wire up the toggle button
+const toggleBtn = document.getElementById('toggle-visited-btn');
+toggleBtn.addEventListener('click', () => {
+  visitedVisible = !visitedVisible;
+  map.setLayoutProperty(
+    'visited-node-points',
+    'visibility',
+    visitedVisible ? 'visible' : 'none'
+  );
+  toggleBtn.textContent = visitedVisible
+    ? 'Hide Visited Nodes'
+    : 'Show Visited Nodes';
+});
 
         })
         .catch(console.error);

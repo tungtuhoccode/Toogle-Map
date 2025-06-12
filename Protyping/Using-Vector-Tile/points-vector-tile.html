@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Vector Tile Display</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100% }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      // You can keep your MapTiler basemap if you like:
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    map.on('load', () => {
+      // 1. Add your vector-tile source pointing at your local tileserver:
+      map.addSource('graph-tiles', {
+        type: 'vector',
+        tiles: [
+          // adjust host/port if needed
+          'http://localhost:8080/data/medium-ottawa-area-points/{z}/{x}/{y}.pbf'
+        ],
+        // if you know your tile set's zoom range, set minzoom/maxzoom:
+        minzoom: 0,
+        maxzoom: 14
+      });
+
+      // 2. Draw polygons (if any)
+      map.addLayer({
+        id: 'graph-fill',
+        type: 'fill',
+        source: 'graph-tiles',
+        'source-layer': 'point', // name of the layer inside your MBTiles; adjust if different
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: {
+          'fill-color': 'rgba(0, 120, 200, 0.2)',
+          'fill-outline-color': 'rgba(0, 120, 200, 0.6)'
+        }
+      });
+
+      // 3. Draw lines
+      map.addLayer({
+        id: 'graph-line',
+        type: 'line',
+        source: 'graph-tiles',
+        'source-layer': 'point',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: {
+          'line-color': '#0078C8',
+          'line-width': 1.5
+        }
+      });
+
+      // 4. Draw points
+      map.addLayer({
+        id: 'graph-point',
+        type: 'circle',
+        source: 'graph-tiles',
+        'source-layer': 'point',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 4,
+          'circle-color': '#D80032',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1
+        }
+      });
+    });
+
+    
+
+    
+  </script>
+</body>
+</html>

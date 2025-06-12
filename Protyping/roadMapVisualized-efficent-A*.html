@@ -27,7 +27,7 @@
     map.addControl(new maplibregl.NavigationControl());
 
     map.on('load', () => {
-      fetch('../Data-Collection/medium.geojson')
+      fetch('../Data-Collection/large-ottawa-area.geojson')
         .then(res => res.json())
         .then(async geojson => {
           // --- build graph & ID/coord maps ---
@@ -58,6 +58,7 @@
             geometry: { type: 'Point', coordinates: coordsMap[k] },
             properties: {}
           }));
+          console.log(features.length)
           map.addSource('visited-nodes', {
             type: 'geojson',
             data: { type:'FeatureCollection', features }

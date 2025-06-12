@@ -15,3 +15,6 @@ https://ad-wiki.informatik.uni-freiburg.de/teaching/EfficientRoutePlanningSS2012
 https://ae.iti.kit.edu/download/diploma_thesis_geisberger.pdf
 
 https://en.m.wikipedia.org/wiki/Transit_node_routing
+
+### Learn more about this
+mcda and weighted analysis
