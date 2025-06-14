@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Animated A* (With Click-to-Select)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100% }
+    #start-btn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    #toggle-visited-btn {
+  position: absolute;
+  top: 50px;
+  left: 10px;
+  z-index: 1;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #ccc;
+  cursor: pointer;
+  font-family: sans-serif;
+}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="start-btn">Start</button>
+  <button id="toggle-visited-btn">Hide Visited Nodes</button>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13
+    });
+    map.addControl(new maplibregl.NavigationControl());
+    map.on('load', () => {
+  fetch('../Data-Collection/medium-ottawa-area.geojson')
+    .then(res => res.json())
+    .then(async geojson => {
+      // --- build graph & ID/coord maps ---
+      const graph = {};
+      function key(pt){ return pt[0] + ',' + pt[1]; }
+      geojson.features.forEach(f => {
+        const c = f.geometry.coordinates;
+        let isOneWay = false;
+        if(f.properties.oneway && f.properties.oneway == "yes") 
+            isOneWay = true
+        
+            for (let i = 1; i < c.length; i++) {
+          const A = key(c[i-1]), B = key(c[i]);
+          const d = turf.distance(turf.point(c[i-1]), turf.point(c[i]), { units: 'kilometers' });
+          graph[A] = graph[A] || [];
+          graph[B] = graph[B] || [];
+          graph[A].push({ to: B, weight: d });
+          if (!isOneWay) graph[B].push({ to: A, weight: d });
+        }
+      });
+      const allKeys   = Object.keys(graph);
+      const idMap     = Object.fromEntries(allKeys.map((k,i) => [k, i]));
+      const coordsMap = Object.fromEntries(allKeys.map(k => [k, k.split(',').map(Number)]));
+
+        const features = allKeys.map((k,i) => ({
+            type: 'Feature',
+            id: i,
+            geometry: { type: 'Point', coordinates: coordsMap[k] },
+            properties: {}
+        }));
+
+
+
+       map.addSource('visited-nodes', {
+            type: 'geojson',
+            data: { type:'FeatureCollection', features }
+          });
+          map.addLayer({
+            id: 'visited-node-points',
+            type: 'circle',
+            source: 'visited-nodes',
+            paint: {
+              'circle-radius': 4,
+              'circle-opacity': 1,
+              'circle-stroke-width': .5,
+              'circle-stroke-color': '#fff',
+              'circle-color': [
+                'case',
+                ['==',['feature-state','visited'], true], '#FF851B',
+                '#2ECC40'
+              ]
+            }
+          });
+
+          // When you click on one of those circles:
+map.on('click', 'visited-node-points', (e) => {
+  // e.features is an array of the features under the mouse
+  const feature = e.features[0];
+  const [lng, lat] = feature.geometry.coordinates;
+
+  // Log it:
+  console.log('Clicked point at:', lng, lat);
+
+  // Optionally show a popup:
+  new maplibregl.Popup()
+    .setLngLat([lng, lat])
+    .setHTML(`Coordinates:<br/>Lng: ${lng.toFixed(6)}<br/>Lat: ${lat.toFixed(6)}`)
+    .addTo(map);
+});
+
+// Change the cursor to a pointer when over points
+map.on('mouseenter', 'visited-node-points', () => {
+  map.getCanvas().style.cursor = 'pointer';
+});
+map.on('mouseleave', 'visited-node-points', () => {
+  map.getCanvas().style.cursor = '';
+});
+    })
+    .catch(console.error);
+});
+
+  </script>
+</body>
+</html>
