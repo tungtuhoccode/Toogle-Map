@@ -2,7 +2,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Map from './Pages/Map/Map';
 
-
 function App() {
   return (
     <Router>
