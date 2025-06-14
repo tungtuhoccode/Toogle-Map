@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Source, Layer } from "react-map-gl/maplibre";
+import {useMap} from '@vis.gl/react-maplibre';
 import type {
   CircleLayerSpecification,
   LineLayerSpecification,
@@ -29,6 +30,13 @@ const graphEdgeLayer: LineLayerSpecification = {
   },
 };
 
+/*
+Graph: 
+1. Node: point on graph that is a pair of [lat, long]
+2. Edge: for each 2 points on the graph, there is an edge. 
+  a. If it's an 1 way street, then there is 1 edge from previous point to the next point
+  b. If it's an 2 way street, there will be 2 edges back and forth 
+*/
 export default function GraphLayers() {
   const [data, setData] = useState<FeatureCollection | null>(null);
   const [showEdges, setShowEdges] = useState(true);
@@ -40,33 +48,45 @@ export default function GraphLayers() {
         if (!res.ok) throw new Error(res.statusText);
         return res.json();
       })
-      .then((json: FeatureCollection) => setData(json))
+      .then((json: FeatureCollection) => 
+        {
+          setData(json)
+        }
+      )
       .catch(console.error);
   }, []);
 
   if (!data) return null;
 
+  const UIHelper = () => {
+    return (
+      <>
+        {/* toggles UI */}
+        <div className="absolute top-4 right-4 z-30 bg-white p-2 rounded-md shadow-md">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showEdges}
+              onChange={() => setShowEdges((v) => !v)}
+            />
+            <span>Show Edges</span>
+          </label>
+          <label className="flex items-center space-x-2 mt-2">
+            <input
+              type="checkbox"
+              checked={showNodes}
+              onChange={() => setShowNodes((v) => !v)}
+            />
+            <span>Show Nodes</span>
+          </label>
+        </div>
+      </>
+    );
+  };
+
   return (
     <>
-      {/* toggles UI */}
-      <div className="absolute top-4 right-4 z-30 bg-white p-2 rounded-md shadow-md">
-        <label className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            checked={showEdges}
-            onChange={() => setShowEdges((v) => !v)}
-          />
-          <span>Show Edges</span>
-        </label>
-        <label className="flex items-center space-x-2 mt-2">
-          <input
-            type="checkbox"
-            checked={showNodes}
-            onChange={() => setShowNodes((v) => !v)}
-          />
-          <span>Show Nodes</span>
-        </label>
-      </div>
+     {UIHelper()}
 
       <Source id="graph-data" type="geojson" data={data}>
           <Layer

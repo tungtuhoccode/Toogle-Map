@@ -38,7 +38,7 @@
       map.addControl(new maplibregl.NavigationControl());
 
       map.on("load", () => {
-        fetch("../Data-Collection/medium.geojson")
+        fetch("../Data-Collection/small.geojson")
           .then((res) => res.json())
           .then((geojson) => {
             // draw all ways as red lines
