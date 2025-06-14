@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Source, Layer } from "react-map-gl/maplibre";
-import {useMap} from '@vis.gl/react-maplibre';
+import { Graph } from "@/Map/Algorithm/Graph/Graph";
+
 import type {
   CircleLayerSpecification,
   LineLayerSpecification,
@@ -32,7 +33,7 @@ const graphEdgeLayer: LineLayerSpecification = {
 
 /*
 Graph: 
-1. Node: point on graph that is a pair of [lat, long]
+1. Vertex: point on graph that is a pair of [lat, long]
 2. Edge: for each 2 points on the graph, there is an edge. 
   a. If it's an 1 way street, then there is 1 edge from previous point to the next point
   b. If it's an 2 way street, there will be 2 edges back and forth 

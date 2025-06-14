@@ -16,6 +16,8 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/vite": "^4.1.10",
+    "@turf/turf": "^7.2.0",
+    "@types/geojson": "^7946.0.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.515.0",
