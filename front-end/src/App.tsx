@@ -1,10 +1,15 @@
-import React from 'react';
+// App.tsx or App.jsx
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Map from './Pages/Map/Map';
+
 
 function App() {
   return (
-    <div className="App">
-      Hello world
-    </div>
+    <Router>
+      <Routes>
+        <Route path="/" element={<Map />} />
+      </Routes>
+    </Router>
   );
 }
 
