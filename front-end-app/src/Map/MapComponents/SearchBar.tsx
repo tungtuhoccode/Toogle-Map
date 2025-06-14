@@ -6,7 +6,7 @@ import { Search, ArrowUpRight } from "lucide-react";
 
 export function SearchBar() {
   return (
-    <div className="absolute top-4 left-4 z-20 flex items-center bg-white rounded-full shadow-md px-3 py-1">
+    <div className="relative top-4 left-4 w-80 flex items-center bg-white rounded-full shadow-md px-3 py-1">
       <Search size={18} className="text-gray-500" />
       <Input
         placeholder="Search a place"

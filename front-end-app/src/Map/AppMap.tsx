@@ -2,6 +2,7 @@ import * as React from "react";
 import Map from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { SearchBar } from "@/Map/MapComponents/SearchBar";
+import GraphLayers from "./MapLayers/GraphLayers/GraphLayers";
 
 export default function AppMap() {
   return (
@@ -11,9 +12,15 @@ export default function AppMap() {
         style={{ width: "100vw", height: "100vh" }}
         mapStyle="https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL"
       >
-        
+        <GraphLayers />
       </Map>
-      <SearchBar />
+
+      <div className="absolute inset-0 z-20 pointer-events-none">
+        {/* wrap actual controls in pointer-events-auto so they remain clickable */}
+        <div className="pointer-events-auto">
+          <SearchBar />
+        </div>
+      </div>
     </div>
   );
 }
