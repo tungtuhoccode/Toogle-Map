@@ -214,7 +214,7 @@
                 });
                 console.log("added visualization data to map")
 
-                for (let i = 15; i >= 1; i--) {
+                for (let i = 45; i >= 1; i--) {
                     console.log(i);
                     await new Promise(r => setTimeout(r, 1000));
                     console.log(`${i}s for visualization set in`)
@@ -258,8 +258,63 @@
                 } else {
                   console.warn('No path found!');
                 }
+
+                console.log("Clustering after algorithm")
+                // after your algorithm finishes, you have:
+                // const featuresBatch = [ … ]  // FeatureCollection.features
+                // Remove the old un-clustered source & layer
+                if (map.getLayer('visited-trail-layer')) {
+                map.removeLayer('visited-trail-layer');
+                map.removeSource('visited-trail');
+                }
+
+                // 1) add a clustered GeoJSON source
+                map.addSource('visited-trail', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: featuresBatch
+                },
+                cluster: true,
+                clusterMaxZoom: 16,    // max zoom to cluster points on
+                clusterRadius:  2  // cluster radius in pixels
+                });
+
+                // 2) a circle layer for the clusters
+                map.addLayer({
+                id: 'visited-clusters',
+                type: 'circle',
+                source: 'visited-trail',
+                        filter: ['has','point_count'],
+                        paint:{
+                        'circle-radius':2,
+                        'circle-color':'#FF851B',
+                        'circle-stroke-width':1,
+                        'circle-stroke-color':'#fff'
+                        }
+                });
+
+
+                // 4) and finally your unclustered points (when point_count is NOT present)
+                map.addLayer({
+                id: 'visited-unclustered',
+                type: 'circle',
+                source: 'visited-trail',
+                filter: ['!', ['has', 'point_count']],
+                paint: {
+                    'circle-radius': 2,
+                    'circle-color': '#FF851B',
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#fff'
+                }
+                });
                 btn.textContent = 'Done';
+
+                              
+                map.moveLayer('visited-clusters', 'shortest-path-line');
+                map.moveLayer('visited-unclustered', 'shortest-path-line');
               });
+
 
             // toggle visited-trail visibility
             let visitedVisible = true;
