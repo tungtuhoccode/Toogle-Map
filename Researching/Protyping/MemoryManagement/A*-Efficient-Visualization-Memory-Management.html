@@ -44,8 +44,8 @@
 
     map.on('load', () => {
       // 2) fetch geojson then hand off to worker
-      //   fetch('../../Data-Collection/large-ottawa-area.geojson')
-      fetch('../../Data-Collection/super-huge.geojson')
+      //   fetch('../../Data-Collection/super-huge.geojson')
+      fetch('../../Data-Collection/medium-hcm-area.geojson')
         .then(res => {
           const len = res.headers.get('content-length');
           if (len) console.log(`On the wire: ${len} bytes`);
@@ -339,9 +339,24 @@
               .addEventListener('click', () => {
                 visitedVisible = !visitedVisible;
                 map.setLayoutProperty(
-                  'visited-trail-layer','visibility',
+                  'unclustered-point','visibility',
                   visitedVisible ? 'visible':'none'
                 );
+                map.setLayoutProperty(
+                'clusters','visibility',
+                  visitedVisible ? 'visible':'none'
+                );
+
+                 if (map.getLayer('visited-clusters-2')) {
+                        map.setLayoutProperty(
+                  'visited-clusters-2','visibility',
+                  visitedVisible ? 'visible':'none'
+                );
+                map.setLayoutProperty(
+                'visited-unclustered-2','visibility',
+                  visitedVisible ? 'visible':'none'
+                );
+                 }
                 document.getElementById('toggle-visited-btn').textContent =
                   visitedVisible ? 'Hide Visited Nodes':'Show Visited Nodes';
               });
