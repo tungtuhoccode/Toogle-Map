@@ -186,7 +186,7 @@
                     geometry: { type: 'Point', coordinates: coordsMap[k] },
                     properties: { order: idx }
                 }));
-                
+
                 // new visited-trail source & layer
                 map.addSource('visited-trail', {
                     type: 'geojson',
@@ -199,8 +199,6 @@
                       { visited: false }
                   );
                 });
-
-                featuresBatch = null //clean up features batch
 
                 map.addLayer({
                 id: 'visited-trail-layer',
@@ -273,6 +271,24 @@
                 } else {
                   console.warn('No path found!');
                 }
+
+
+  if (map.getLayer('visited-trail-layer')) {
+    map.removeLayer('visited-trail-layer');
+    map.removeSource('visited-trail');
+  }
+
+isLoaded = false
+map.once('idle', () => {
+  console.log('Everything—including your new layer—has been rendered and is idle.');
+  isLoaded = true
+});
+while(!isLoaded){
+  await new Promise(r => setTimeout(r, 1000));
+  console.log(`waiting for loading`)
+}
+
+
 //$(#%&@(*&%(*@#&%(*))))
 // 1) add a clustered GeoJSON source
   map.addSource('visited-trail-2', {
@@ -328,11 +344,6 @@
 
   // map.triggerRepaint()
   console.log("added visualization data to map")
-
-  if (map.getLayer('visited-trail-layer')) {
-    map.removeLayer('visited-trail-layer');
-    map.removeSource('visited-trail');
-  }
 
   map.moveLayer('visited-clusters-2', 'shortest-path-line');
   map.moveLayer('visited-unclustered-2', 'shortest-path-line');

@@ -44,8 +44,8 @@
 
     map.on('load', () => {
       // 2) fetch geojson then hand off to worker
-        fetch('../../Data-Collection/super-huge.geojson')
-      // fetch('../../Data-Collection/large-ottawa-area.geojson')
+      //   fetch('../../Data-Collection/super-huge.geojson')
+      fetch('../../Data-Collection/medium-ottawa-area.geojson')
         .then(res => {
           const len = res.headers.get('content-length');
           if (len) console.log(`On the wire: ${len} bytes`);
@@ -137,21 +137,6 @@
               }
             });
 
-            // helper that returns a Promise which only resolves
-          // after the worker has posted back and been terminated
-          function runAStarAndTerminate(worker, payload) {
-            return new Promise((resolve, reject) => {
-              worker.onmessage = ({ data }) => {
-                // first terminate…
-                worker.terminate();
-                // …then resolve with the data
-                resolve(data);
-              };
-              worker.onerror = reject;              // in case of worker crash
-              worker.postMessage(payload);
-            });
-          }
-
             // 6) run A*, animate visited + draw path
             document.getElementById('start-btn')
               .addEventListener('click', async () => {
@@ -168,93 +153,117 @@
                 btn.disabled = true; btn.textContent = 'Running…';
                 console.log("Start running algorithm")
 
-               const aStarWorker = new Worker('aStarAlgorithmWorker.js');
-                const payload = { graph, coordsMap, allKeys, startKey, endKey };
+                const aStarAlgorithmWorker = new Worker('aStarAlgorithmWorker.js');
 
-                // this line “pauses” here until the worker is done *and* terminated
-                const { visitedOrder, path } = await runAStarAndTerminate(aStarWorker, payload);
-                await new Promise(resolve => setTimeout(resolve, 1000))
+                 // 2) Kick it off and await its response
+                    const { visitedOrder, path } = await new Promise(resolve => {
+                    aStarAlgorithmWorker.onmessage = ({ data }) => {
+                        resolve(data);
+                        worker.terminate();       // clean up the worker
+                    };
+                    aStarAlgorithmWorker.postMessage({       // send it everything it needs
+                        graph,
+                        coordsMap,
+                        allKeys,
+                        startKey,
+                        endKey
+                    });
+                    });
 
-                console.log("Worker finished, now visualize…");
-
-                // map.triggerRepaint()
-                console.log("added visualization data to map")
-
-//^$^#$^#     
-                let featuresBatch = visitedOrder.map((k, idx) => ({
-                    type: 'Feature', id: idx,
-                    geometry: { type: 'Point', coordinates: coordsMap[k] },
-                    properties: { order: idx }
-                }));
-                
-                // new visited-trail source & layer
-                map.addSource('visited-trail', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: featuresBatch }
-                });
-                                // CLEAR ALL visited STATES:
-                featuresBatch.forEach(f => {
-                  map.setFeatureState(
-                      { source: 'visited-trail', id: f.id },
-                      { visited: false }
-                  );
-                });
-
-                featuresBatch = null //clean up features batch
-
-                map.addLayer({
-                id: 'visited-trail-layer',
-                type: 'circle',
-                source: 'visited-trail',
-                paint: {
-                    'circle-radius':2,
-                    'circle-color':'#FF851B',
-                    'circle-opacity':['case',['==',['feature-state','visited'],true], 1, 0],
-                    'circle-stroke-color':'#fff',
-                    'circle-stroke-width': 0.5 ,
-                    'circle-stroke-opacity':['case',['==',['feature-state','visited'],true], 1, 0]
-                }
-                });
-
-                let isLoaded = false
-                map.once('idle', () => {
-                  console.log('Everything—including your new layer—has been rendered and is idle.');
-                  isLoaded = true
-                });
-                while(!isLoaded){
-                  await new Promise(r => setTimeout(r, 1000));
-                  console.log(`waiting for loading`)
-                }
+                    console.log("Worker finished, now visualize…");
 
                 // map.triggerRepaint()
                 console.log("added visualization data to map")
+                console.log(visitedOrder)
+//!#($&(*#!$&(*!#)))
+  // … all your existing map initialization, graph loading, A* worker, etc.
 
-                // for (let i = 60; i >= 1; i--) {
-                //     console.log(i);
-                //     await new Promise(r => setTimeout(r, 1000));
-                //     console.log(`${i}s for visualization set in`)
-                // }
+  // 1) AFTER you get `visitedOrder` back from your worker:
+  const visitedCoords = visitedOrder.map(s => {
+    const [lng, lat] = s.split(',').map(Number);
+    return [lng, lat];
+  });
+  let animating = true;  // flip to false when you want to stop redrawing
 
+  console.log("start drawing using viisted layer")
+  // 2) define your custom “visited-custom” layer exactly once (e.g. right after map.load)
+map.addLayer({
+  id: 'visited-custom',
+  type: 'custom',
+  renderingMode: '2d',
 
+  onAdd(map, gl) {
+    // 1) Minimal vertex+fragment shaders, no attributes:
+    const vs = `
+      precision mediump float;
+      uniform vec2 u_point;
+      uniform float u_radius;
+      uniform mat4 u_matrix;
+      void main() {
+        // position in clip space
+        gl_Position = u_matrix * vec4(u_point, 0.0, 1.0);
+        // size in pixels
+        gl_PointSize = u_radius * 2.0;
+      }
+    `;
+    const fs = `
+      precision mediump float;
+      void main() {
+        // a simple solid circle: use the fragment mask
+        vec2 coord = gl_PointCoord * 2.0 - 1.0;
+        if (dot(coord, coord) > 1.0) discard;
+        gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
+      }
+    `;
 
-               async function animateFeatureState(visitedOrder) {
-                    for (let i = 0; i < visitedOrder.length; i += 50) {
-                        const batch = visitedOrder.slice(i, i + 50);
-                        batch.forEach((_, idx) => {
-                            map.setFeatureState(
-                                { source: 'visited-trail', id: i + idx },
-                                { visited: true }
-                            );
-                        });
-                        // wait one frame so map can redraw
-                        await new Promise(r => setTimeout(r, 0));
-                    }
-                }
-                console.log("animation start running")
-                await animateFeatureState(visitedOrder)
-                console.log("animation finish running")
+    // compile & link
+    const prog = gl.createProgram();
+    [['VERTEX_SHADER', vs], ['FRAGMENT_SHADER', fs]].forEach(([type, src]) => {
+      const s = gl.createShader(gl[type]);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      gl.attachShader(prog, s);
+    });
+    gl.linkProgram(prog);
 
-//^$^#$^#                
+    // look up uniform locations
+    this.prog = {
+      program: prog,
+      u_point:  gl.getUniformLocation(prog, 'u_point'),
+      u_matrix: gl.getUniformLocation(prog, 'u_matrix'),
+      u_radius: gl.getUniformLocation(prog, 'u_radius'),
+    };
+
+    // enable alpha blending for smooth circles
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  },
+
+  render(gl, matrix) {
+    if (!visitedCoords.length) return;
+
+    gl.useProgram(this.prog.program);
+
+    // build a real Float32Array from MapLibre's matrix
+    const m = new Float32Array(16);
+    for (let i = 0; i < 16; i++) m[i] = matrix[i];
+    gl.uniformMatrix4fv(this.prog.u_matrix, false, m);
+
+    // draw only the first visited point for debugging
+    const [lng, lat] = visitedCoords[0];
+    const p = map.project([lng, lat]);
+    gl.uniform2f(this.prog.u_point, p.x, p.y);
+    gl.uniform1f(this.prog.u_radius, 100.0);  // 8px radius → 16px diameter
+
+    // this will draw one POINT and rely on gl_PointSize
+    gl.drawArrays(gl.POINTS, 0, 1);
+    // no need to trigger another repaint unless you’re animating continuously
+  }
+});
+
+//!#($&(*#!$&(*!#)))
+
+              
                 if (path) {
                   const coords = path.map(k => coordsMap[k]);
                   const fc = { type:'FeatureCollection', features:[{
@@ -273,70 +282,7 @@
                 } else {
                   console.warn('No path found!');
                 }
-//$(#%&@(*&%(*@#&%(*))))
-// 1) add a clustered GeoJSON source
-  map.addSource('visited-trail-2', {
-  type: 'geojson',
-  data: {
-      type: 'FeatureCollection',
-      features: featuresBatch
-  },
-  cluster: true,
-  clusterMaxZoom: 16,    // max zoom to cluster points on
-  clusterRadius:  2  // cluster radius in pixels
-  });
 
-  // 2) a circle layer for the clusters
-  map.addLayer({
-  id: 'visited-clusters-2',
-  type: 'circle',
-  source: 'visited-trail-2',
-          filter: ['has','point_count'],
-          paint:{
-          'circle-radius':2,
-          'circle-color':'#FF851B',
-          'circle-stroke-width':1,
-          'circle-stroke-color':'#fff'
-          }
-  });
-
-
-  // 4) and finally your unclustered points (when point_count is NOT present)
-  map.addLayer({
-  id: 'visited-unclustered-2',
-  type: 'circle',
-  source: 'visited-trail-2',
-  filter: ['!', ['has', 'point_count']],
-  paint: {
-      'circle-radius': 2,
-      'circle-color': '#FF851B',
-      'circle-stroke-width': 1,
-      'circle-stroke-color': '#fff'
-  }
-  });
-  btn.textContent = 'Done';
-
-  let isLoaded2 = false
-  map.once('idle', () => {
-    console.log('Everything—including your new layer—has been rendered and is idle.');
-    isLoaded2 = true
-  });
-  while(!isLoaded){
-    await new Promise(r => setTimeout(r, 1000));
-    console.log(`waiting for loading`)
-  }
-
-  // map.triggerRepaint()
-  console.log("added visualization data to map")
-
-  if (map.getLayer('visited-trail-layer')) {
-    map.removeLayer('visited-trail-layer');
-    map.removeSource('visited-trail');
-  }
-
-  map.moveLayer('visited-clusters-2', 'shortest-path-line');
-  map.moveLayer('visited-unclustered-2', 'shortest-path-line');
-//$(#%&@(*&%(*@#&%(*))))
               });
 
 
