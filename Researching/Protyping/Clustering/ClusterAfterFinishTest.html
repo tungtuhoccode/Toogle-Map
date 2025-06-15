@@ -46,15 +46,32 @@
       // 2) fetch geojson then hand off to worker
       //   fetch('../../Data-Collection/large-ottawa-area.geojson')
       fetch('../../Data-Collection/super-huge.geojson')
-        .then(res => res.json())
+        .then(res => {
+          const len = res.headers.get('content-length');
+          if (len) console.log(`On the wire: ${len} bytes`);
+          return res.json();
+        })
         .then(geojson => {
-            console.log("finish loading json")
+          console.log("finish loading json")
           const worker = new Worker('graphWorker.js');
           worker.postMessage(geojson);
+          geojson = null; //discard geojson from memory
 
           worker.onmessage = ({ data }) => {
             console.log("finish loading");
             const { graph, coordsMap, allKeys } = data;
+            worker.terminate();
+
+            // helper to get UTF-8 byte length of any JS value
+            function byteSize(obj) {
+              // stringify → UTF-8 encode → measure length
+              return new TextEncoder().encode(JSON.stringify(obj)).length;
+            }
+
+            console.log(`graph:      ~${byteSize(graph).toLocaleString()} bytes`);
+            console.log(`coordsMap:  ~${byteSize(coordsMap).toLocaleString()} bytes`);
+            console.log(`allKeys:    ~${byteSize(allKeys).toLocaleString()} bytes`);
+
 
             // build graph-nodes source + cluster layers
             const features = allKeys.map((k, i) => ({
@@ -63,6 +80,8 @@
               geometry: { type: 'Point', coordinates: coordsMap[k] },
               properties: {}
             }));
+
+            console.log("Number of nodes", features.length)
             map.addSource('graph-nodes', {
               type: 'geojson',
               data: { type: 'FeatureCollection', features },
@@ -90,8 +109,6 @@
                 'circle-stroke-color': '#fff'
               }
             });
-
-
 
             // one-shot A* returning visited order + path
             async function astar(graph, start, goal) {
@@ -176,50 +193,6 @@
                 console.log("Start running algorithm")
 
                 const { visitedOrder, path } = await astar(graph, startKey, endKey);
-                console.log("finish running algorithm")
-                
-                const featuresBatch = visitedOrder.map((k, idx) => ({
-                    type: 'Feature', id: idx,
-                    geometry: { type: 'Point', coordinates: coordsMap[k] },
-                    properties: { order: idx }
-                }));
-
-                // new visited-trail source & layer
-                map.addSource('visited-trail', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: featuresBatch }
-                });
-                                // CLEAR ALL visited STATES:
-                featuresBatch.forEach(f => {
-                  map.setFeatureState(
-                      { source: 'visited-trail', id: f.id },
-                      { visited: false }
-                  );
-                });
-
-                map.addLayer({
-                id: 'visited-trail-layer',
-                type: 'circle',
-                source: 'visited-trail',
-                paint: {
-                    'circle-radius':2,
-                    'circle-color':'#FF851B',
-                    'circle-opacity':['case',['==',['feature-state','visited'],true], 1, 0],
-                    'circle-stroke-color':'#fff',
-                    'circle-stroke-width': 0.5 ,
-                    'circle-stroke-opacity':['case',['==',['feature-state','visited'],true], 1, 0]
-                }
-                });
-
-                let isLoaded = false
-                map.once('idle', () => {
-                  console.log('Everything—including your new layer—has been rendered and is idle.');
-                  isLoaded = true
-                });
-                while(!isLoaded){
-                  await new Promise(r => setTimeout(r, 1000));
-                  console.log(`waiting for loading`)
-                }
 
                 // map.triggerRepaint()
                 console.log("added visualization data to map")
@@ -232,22 +205,6 @@
 
 
 
-               async function animateFeatureState(visitedOrder) {
-                    for (let i = 0; i < visitedOrder.length; i += 50) {
-                        const batch = visitedOrder.slice(i, i + 50);
-                        batch.forEach((_, idx) => {
-                            map.setFeatureState(
-                                { source: 'visited-trail', id: i + idx },
-                                { visited: true }
-                            );
-                        });
-                        // wait one frame so map can redraw
-                        await new Promise(r => setTimeout(r, 0));
-                    }
-                }
-                console.log("animation start running")
-                await animateFeatureState(visitedOrder)
-                console.log("animation finish running")
 
                 // draw final path
                 if (path) {
@@ -269,75 +226,7 @@
                   console.warn('No path found!');
                 }
 
-                console.log("Clustering after algorithm")
-                // after your algorithm finishes, you have:
-                // const featuresBatch = [ … ]  // FeatureCollection.features
-                // Remove the old un-clustered source & layer
 
-                // 1) add a clustered GeoJSON source
-                map.addSource('visited-trail-2', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: featuresBatch
-                },
-                cluster: true,
-                clusterMaxZoom: 16,    // max zoom to cluster points on
-                clusterRadius:  2  // cluster radius in pixels
-                });
-
-                // 2) a circle layer for the clusters
-                map.addLayer({
-                id: 'visited-clusters-2',
-                type: 'circle',
-                source: 'visited-trail-2',
-                        filter: ['has','point_count'],
-                        paint:{
-                        'circle-radius':2,
-                        'circle-color':'#FF851B',
-                        'circle-stroke-width':1,
-                        'circle-stroke-color':'#fff'
-                        }
-                });
-
-
-                // 4) and finally your unclustered points (when point_count is NOT present)
-                map.addLayer({
-                id: 'visited-unclustered-2',
-                type: 'circle',
-                source: 'visited-trail-2',
-                filter: ['!', ['has', 'point_count']],
-                paint: {
-                    'circle-radius': 2,
-                    'circle-color': '#FF851B',
-                    'circle-stroke-width': 1,
-                    'circle-stroke-color': '#fff'
-                }
-                });
-                btn.textContent = 'Done';
-
-                let isLoaded2 = false
-                map.once('idle', () => {
-                  console.log('Everything—including your new layer—has been rendered and is idle.');
-                  isLoaded2 = true
-                });
-                while(!isLoaded){
-                  await new Promise(r => setTimeout(r, 1000));
-                  console.log(`waiting for loading`)
-                }
-
-                // map.triggerRepaint()
-                console.log("added visualization data to map")
-
-                if (map.getLayer('visited-trail-layer')) {
-                  map.removeLayer('visited-trail-layer');
-                  map.removeSource('visited-trail');
-                }
-
-                
-                              
-                map.moveLayer('visited-clusters-2', 'shortest-path-line');
-                map.moveLayer('visited-unclustered-2', 'shortest-path-line');
               });
 
 
