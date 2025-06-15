@@ -59,12 +59,14 @@
           );
 
           // --- prepare GeoJSON point features ---
-          const features = allKeys.map((k,i) => ({
-            type: 'Feature',
-            id: i,
-            geometry: { type: 'Point', coordinates: coordsMap[k] },
-            properties: {}
-          }));
+      const features = allKeys.map((k,i) => ({
+        type: 'Feature',
+        id: i,
+        geometry: { type: 'Point', coordinates: coordsMap[k] },
+        properties: {
+          visited: false  // <-- add default property "visited"
+        }
+      }));
 
           // --- create visited-nodes source WITH clustering ---
           map.addSource('visited-nodes', {
@@ -121,6 +123,7 @@
 
           // --- A* async generator ---
           async function* astarGen(graph, start, goal) {
+            console.log("A star is running")
             const h = u => turf.distance(
               turf.point(coordsMap[u]),
               turf.point(coordsMap[goal]),

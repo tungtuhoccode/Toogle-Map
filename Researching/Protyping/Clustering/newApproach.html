@@ -1,0 +1,268 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Animated A* (With Click-to-Select and Animated Visited)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100%; }
+    #start-btn, #toggle-visited-btn {
+      position: absolute;
+      left: 10px;
+      z-index: 1;
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    #start-btn { top: 10px; }
+    #toggle-visited-btn { top: 50px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="start-btn">Start</button>
+  <button id="toggle-visited-btn">Hide Visited Nodes</button>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    // 1) initialize map
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13,
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    map.on('load', () => {
+      // 2) fetch geojson then hand off to worker
+      fetch('../../Data-Collection/large-ottawa-area.geojson')
+        .then(res => res.json())
+        .then(geojson => {
+          const worker = new Worker('graphWorker.js');
+          worker.postMessage(geojson);
+
+          worker.onmessage = ({ data }) => {
+            console.log("finish loading");
+            const { graph, coordsMap, allKeys } = data;
+
+            // build graph-nodes source + cluster layers
+            const features = allKeys.map((k, i) => ({
+              type: 'Feature',
+              id: i,
+              geometry: { type: 'Point', coordinates: coordsMap[k] },
+              properties: {}
+            }));
+            map.addSource('graph-nodes', {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features },
+              cluster: true,
+              clusterMaxZoom: 16,
+              clusterRadius: 2
+            });
+            map.addLayer({
+              id: 'clusters', type: 'circle', source: 'graph-nodes',
+              filter: ['has', 'point_count'],
+              paint: {
+                'circle-radius': 2,
+                'circle-color': '#2ECC40',
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#fff'
+              }
+            });
+            map.addLayer({
+              id: 'unclustered-point', type: 'circle', source: 'graph-nodes',
+              filter: ['!', ['has', 'point_count']],
+              paint: {
+                'circle-radius': 2,
+                'circle-color': '#2ECC40',
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#fff'
+              }
+            });
+
+
+
+            // one-shot A* returning visited order + path
+            async function astar(graph, start, goal) {
+              const h = u => turf.distance(
+                turf.point(coordsMap[u]),
+                turf.point(coordsMap[goal]),
+                { units: 'kilometers' }
+              );
+              const openSet = new Set([start]);
+              const cameFrom = {};
+              const gScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
+              const fScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
+              gScore[start] = 0; fScore[start] = h(start);
+
+              const visitedOrder = [];
+
+              while (openSet.size) {
+                let current = null, best = Infinity;
+                for (const u of openSet) {
+                  if (fScore[u] < best) { best = fScore[u]; current = u; }
+                }
+                visitedOrder.push(current);
+                if (current === goal) break;
+
+                openSet.delete(current);
+                for (const { to: nei, weight: w } of graph[current]) {
+                  const tg = gScore[current] + w;
+                  if (tg < gScore[nei]) {
+                    cameFrom[nei] = current;
+                    gScore[nei]  = tg;
+                    fScore[nei]  = tg + h(nei);
+                    openSet.add(nei);
+                  }
+                }
+              }
+
+              let path = null;
+              if (gScore[goal] < Infinity) {
+                path = [];
+                let u = goal;
+                while (u) { path.unshift(u); u = cameFrom[u]; }
+              }
+              return { visitedOrder, path };
+            }
+
+            // click to pick start/end
+            let startKey = null, endKey = null;
+            let startMarker, endMarker;
+            map.on('click', e => {
+              const click = [e.lngLat.lng, e.lngLat.lat];
+              let best = Infinity, nearest = null;
+              allKeys.forEach(k => {
+                const [x,y] = coordsMap[k];
+                const d2 = (click[0]-x)**2 + (click[1]-y)**2;
+                if (d2 < best) { best = d2; nearest = k; }
+              });
+              if (!startKey) {
+                startKey = nearest;
+                startMarker = new maplibregl.Marker({ color:'green' })
+                  .setLngLat(coordsMap[nearest]).addTo(map);
+              } else if (!endKey) {
+                endKey = nearest;
+                endMarker = new maplibregl.Marker({ color:'red' })
+                  .setLngLat(coordsMap[nearest]).addTo(map);
+              }
+            });
+
+            // 6) run A*, animate visited + draw path
+            document.getElementById('start-btn')
+              .addEventListener('click', async () => {
+                if (!startKey || !endKey) {
+                  return alert('Click for start (green) then end (red).');
+                }
+                startMarker?.remove(); endMarker?.remove();
+                startMarker = new maplibregl.Marker({ color:'green' })
+                  .setLngLat(coordsMap[startKey]).addTo(map);
+                endMarker   = new maplibregl.Marker({ color:'red' })
+                  .setLngLat(coordsMap[endKey]).addTo(map);
+
+                const btn = document.getElementById('start-btn');
+                btn.disabled = true; btn.textContent = 'Running…';
+
+                const { visitedOrder, path } = await astar(graph, startKey, endKey);
+                
+                const featuresBatch = visitedOrder.map((k, idx) => ({
+                    type: 'Feature', id: idx,
+                    geometry: { type: 'Point', coordinates: coordsMap[k] },
+                    properties: { order: idx }
+                }));
+
+                // new visited-trail source & layer
+                map.addSource('visited-trail', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: featuresBatch }
+                });
+                map.addLayer({
+                id: 'visited-trail-layer',
+                type: 'circle',
+                source: 'visited-trail',
+                paint: {
+                    'circle-radius':2,
+                    'circle-color':'#FF851B',
+                    'circle-opacity':['case',['==',['feature-state','visited'],true], 1, 1],
+                    'circle-stroke-color':'#fff',
+                    'circle-stroke-width':0.5,
+                    'circle-stroke-opacity':['case',['==',['feature-state','visited'],true], 1, 1]
+                }
+                });
+
+                function resetVisited() {
+                allKeys.forEach(k => {
+                    map.setFeatureState(
+                    { source: 'visited-nodes', id: idMap[k] },
+                    { visited: false }
+                    );
+                });
+                }
+                resetVisited();
+
+                // animate visited nodes in batches of 50
+                let accumulated = [];
+                for (let i = 0; i < visitedOrder.length; i += 1000) {
+                  accumulated = accumulated.concat(visitedOrder.slice(i, i + 1000));
+                  const featuresBatch = accumulated.map((k, idx) => ({
+                    type: 'Feature', id: idx,
+                    geometry: { type: 'Point', coordinates: coordsMap[k] },
+                    properties: { order: idx }
+                  }));
+                  map.getSource('visited-trail').setData({
+                    type: 'FeatureCollection', features: featuresBatch
+                  });
+                  // allow rendering
+                  await new Promise(r => setTimeout(r, 0));
+                }
+
+                // draw final path
+                if (path) {
+                  const coords = path.map(k => coordsMap[k]);
+                  const fc = { type:'FeatureCollection', features:[{
+                    type:'Feature', geometry:{ type:'LineString', coordinates: coords }, properties:{}
+                  }]};
+                  if (map.getSource('shortest-path')) {
+                    map.getSource('shortest-path').setData(fc);
+                  } else {
+                    map.addSource('shortest-path',{ type:'geojson', data: fc });
+                    map.addLayer({
+                      id: 'shortest-path-line', type: 'line', source: 'shortest-path',
+                      layout: { 'line-join':'round','line-cap':'round' },
+                      paint: { 'line-color':'#0074D9','line-width':4 }
+                    });
+                  }
+                } else {
+                  console.warn('No path found!');
+                }
+                btn.textContent = 'Done';
+              });
+
+            // toggle visited-trail visibility
+            let visitedVisible = true;
+            document.getElementById('toggle-visited-btn')
+              .addEventListener('click', () => {
+                visitedVisible = !visitedVisible;
+                map.setLayoutProperty(
+                  'visited-trail-layer','visibility',
+                  visitedVisible ? 'visible':'none'
+                );
+                document.getElementById('toggle-visited-btn').textContent =
+                  visitedVisible ? 'Hide Visited Nodes':'Show Visited Nodes';
+              });
+          };
+        })
+        .catch(console.error);
+    });
+  </script>
+</body>
+</html>

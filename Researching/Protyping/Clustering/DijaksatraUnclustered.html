@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Animated Dijkstra (With Clustering & Visited Overlay)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100% }
+    #start-btn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 2;
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="start-btn">Start</button>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    let graph, allKeys, idMap, features;
+
+    map.on('load', async () => {
+      const geojson = await fetch('../../Data-Collection/large-ottawa-area.geojson').then(r=>r.json());
+
+      // --- build graph & features array (once) ---
+      graph = {};
+      function key(pt){ return pt[0]+','+pt[1]; }
+      geojson.features.forEach(f => {
+        const c = f.geometry.coordinates;
+        for(let i=1;i<c.length;i++){
+          const A = key(c[i-1]), B = key(c[i]);
+          const d = turf.distance(turf.point(c[i-1]), turf.point(c[i]), { units:'kilometers' });
+          graph[A] = graph[A]||[];
+          graph[B] = graph[B]||[];
+          graph[A].push({ to:B, weight:d });
+          graph[B].push({ to:A, weight:d });
+        }
+      });
+      allKeys = Object.keys(graph);
+      idMap   = Object.fromEntries(allKeys.map((k,i)=>[k,i]));
+
+        features = allKeys.map((k,i) => {
+        const [lon,lat] = k.split(',').map(Number);
+        return {
+            type: 'Feature',
+            id: i,
+            geometry: { type: 'Point', coordinates: [lon,lat] },
+            properties: { visited: false }
+        };
+        });
+
+
+      // --- 1. regular graph-nodes source (clustered) ---
+      map.addSource('graph-nodes', {
+        type: 'geojson',
+        data: { type:'FeatureCollection', features },
+        cluster: true,
+        clusterMaxZoom: 16,
+        clusterRadius: 2
+      });
+      map.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'graph-nodes',
+        filter: ['has','point_count'],
+        paint:{
+          'circle-radius':3,
+          'circle-color':'#2ECC40',
+          'circle-stroke-width':1,
+          'circle-stroke-color':'#fff'
+        }
+      });
+      map.addLayer({
+        id: 'unclustered-point',
+        type: 'circle',
+        source: 'graph-nodes',
+        filter: ['!',['has','point_count']],
+        paint:{
+          'circle-radius':3,
+          'circle-color':'#2ECC40',
+          'circle-stroke-width':1,
+          'circle-stroke-color':'#fff'
+        }
+      });
+
+      // --- 2. visited-nodes source & layer (overlay) ---
+      map.addSource('visited-nodes', {
+        type:'geojson',
+        data:{ type:'FeatureCollection', features }
+      });
+      map.addLayer({
+        id:'visited-node-points',
+        type:'circle',
+        source:'visited-nodes',
+        paint:{
+          'circle-radius':3,
+          'circle-color':'#FF851B',
+          'circle-opacity':['case',['==',['feature-state','visited'],true],1,0],
+          'circle-stroke-color':'#fff',
+          'circle-stroke-width':1,
+          'circle-stroke-opacity':['case',['==',['feature-state','visited'],true],1,0]
+        }
+      });
+      
+      // init all to false
+      allKeys.forEach(k=>{
+        map.setFeatureState({ source:'visited-nodes', id:idMap[k] }, { visited:false });
+      });
+    });
+
+    // Dijkstra generator
+    async function* dijkstraGen(g, start, goal){
+      const dist = Object.fromEntries(Object.keys(g).map(u=>[u,Infinity]));
+      const prev = {};
+      dist[start]=0;
+      const Q = Object.keys(g);
+      while(Q.length){
+        Q.sort((a,b)=>dist[a]-dist[b]);
+        const u = Q.shift();
+        yield u;
+        if(u===goal) break;
+        for(const {to:v,weight:w} of g[u]){
+          const alt = dist[u]+w;
+          if(alt<dist[v]){ dist[v]=alt; prev[v]=u; }
+        }
+      }
+      if(dist[goal]===Infinity) return null;
+      const path=[];
+      for(let u=goal; u; u=prev[u]) path.unshift(u);
+      return path;
+    }
+
+    // This only runs when you click
+    async function runDijkstra(){
+      document.getElementById('start-btn').disabled = true;
+
+      const startKey = Object.keys(graph)[0];
+      const endKey   = Object.keys(graph).at(-1);
+      const gen      = dijkstraGen(graph, startKey, endKey);
+      let step, batch=[];
+
+      while(!(step = await gen.next()).done){
+        batch.push(step.value);
+        if(batch.length >= 50){
+          batch.forEach(k=>{
+            map.setFeatureState({ source:'visited-nodes', id:idMap[k] }, { visited:true });
+          });
+          batch.length = 0;
+          await new Promise(r=>setTimeout(r,0));
+        }
+      }
+      // flush remainder
+      batch.forEach(k=>{
+        map.setFeatureState({ source:'visited-nodes', id:idMap[k] }, { visited:true });
+      });
+
+      const shortest = step.value;
+      if(!shortest) return console.warn('no path');
+      const pathCoords = shortest.map(k=>k.split(',').map(Number));
+      map.addSource('shortest-path',{
+        type:'geojson',
+        data:{ type:'FeatureCollection', features:[{
+          type:'Feature',
+          geometry:{ type:'LineString', coordinates:pathCoords },
+          properties:{}
+        }] }
+      });
+      map.addLayer({
+        id:'shortest-path-line',
+        type:'line',
+        source:'shortest-path',
+        layout:{'line-join':'round','line-cap':'round'},
+        paint:{'line-color':'#0074D9','line-width':4}
+      });
+    }
+
+    document.getElementById('start-btn').addEventListener('click', runDijkstra);
+  </script>
+</body>
+</html>
