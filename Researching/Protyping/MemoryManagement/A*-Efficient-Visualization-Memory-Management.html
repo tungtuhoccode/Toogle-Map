@@ -62,19 +62,18 @@
             const { graph, coordsMap, allKeys } = data;
             worker.terminate();
 
-            // helper to get UTF-8 byte length of any JS value
-            function byteSize(obj) {
-              // stringify → UTF-8 encode → measure length
-              return new TextEncoder().encode(JSON.stringify(obj)).length;
-            }
+            // // helper to get UTF-8 byte length of any JS value
+            // function byteSize(obj) {
+            //   // stringify → UTF-8 encode → measure length
+            //   return new TextEncoder().encode(JSON.stringify(obj)).length;
+            // }
 
-            console.log(`graph:      ~${byteSize(graph).toLocaleString()} bytes`);
-            console.log(`coordsMap:  ~${byteSize(coordsMap).toLocaleString()} bytes`);
-            console.log(`allKeys:    ~${byteSize(allKeys).toLocaleString()} bytes`);
-
+            // console.log(`graph:      ~${byteSize(graph).toLocaleString()} bytes`);
+            // console.log(`coordsMap:  ~${byteSize(coordsMap).toLocaleString()} bytes`);
+            // console.log(`allKeys:    ~${byteSize(allKeys).toLocaleString()} bytes`);
 
             // build graph-nodes source + cluster layers
-            const features = allKeys.map((k, i) => ({
+            let features = allKeys.map((k, i) => ({
               type: 'Feature',
               id: i,
               geometry: { type: 'Point', coordinates: coordsMap[k] },
@@ -89,6 +88,9 @@
               clusterMaxZoom: 16,
               clusterRadius: 2
             });
+
+            features = null; //free up feature memory
+
             map.addLayer({
               id: 'clusters', type: 'circle', source: 'graph-nodes',
               filter: ['has', 'point_count'],
@@ -110,53 +112,12 @@
               }
             });
 
-            // one-shot A* returning visited order + path
-            async function astar(graph, start, goal) {
-              const h = u => turf.distance(
-                turf.point(coordsMap[u]),
-                turf.point(coordsMap[goal]),
-                { units: 'kilometers' }
-              );
-              const openSet = new Set([start]);
-              const cameFrom = {};
-              const gScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
-              const fScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
-              gScore[start] = 0; fScore[start] = h(start);
 
-              const visitedOrder = [];
-
-              while (openSet.size) {
-                let current = null, best = Infinity;
-                for (const u of openSet) {
-                  if (fScore[u] < best) { best = fScore[u]; current = u; }
-                }
-                visitedOrder.push(current);
-                if (current === goal) break;
-
-                openSet.delete(current);
-                for (const { to: nei, weight: w } of graph[current]) {
-                  const tg = gScore[current] + w;
-                  if (tg < gScore[nei]) {
-                    cameFrom[nei] = current;
-                    gScore[nei]  = tg;
-                    fScore[nei]  = tg + h(nei);
-                    openSet.add(nei);
-                  }
-                }
-              }
-
-              let path = null;
-              if (gScore[goal] < Infinity) {
-                path = [];
-                let u = goal;
-                while (u) { path.unshift(u); u = cameFrom[u]; }
-              }
-              return { visitedOrder, path };
-            }
 
             // click to pick start/end
             let startKey = null, endKey = null;
             let startMarker, endMarker;
+            
             map.on('click', e => {
               const click = [e.lngLat.lng, e.lngLat.lat];
               let best = Infinity, nearest = null;
@@ -192,13 +153,30 @@
                 btn.disabled = true; btn.textContent = 'Running…';
                 console.log("Start running algorithm")
 
-                const { visitedOrder, path } = await astar(graph, startKey, endKey);
+                const aStarAlgorithmWorker = new Worker('aStarAlgorithmWorker.js');
+
+                 // 2) Kick it off and await its response
+                    const { visitedOrder, path } = await new Promise(resolve => {
+                    aStarAlgorithmWorker.onmessage = ({ data }) => {
+                        resolve(data);
+                        worker.terminate();       // clean up the worker
+                    };
+                    aStarAlgorithmWorker.postMessage({       // send it everything it needs
+                        graph,
+                        coordsMap,
+                        allKeys,
+                        startKey,
+                        endKey
+                    });
+                    });
+
+                    console.log("Worker finished, now visualize…");
 
                 // map.triggerRepaint()
                 console.log("added visualization data to map")
 
 //^$^#$^#     
-const featuresBatch = visitedOrder.map((k, idx) => ({
+                const featuresBatch = visitedOrder.map((k, idx) => ({
                     type: 'Feature', id: idx,
                     geometry: { type: 'Point', coordinates: coordsMap[k] },
                     properties: { order: idx }
@@ -352,7 +330,6 @@ const featuresBatch = visitedOrder.map((k, idx) => ({
   map.moveLayer('visited-clusters-2', 'shortest-path-line');
   map.moveLayer('visited-unclustered-2', 'shortest-path-line');
 //$(#%&@(*&%(*@#&%(*))))
-
               });
 
 
