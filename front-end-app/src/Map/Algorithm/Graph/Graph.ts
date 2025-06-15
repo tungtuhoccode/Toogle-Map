@@ -49,7 +49,7 @@ export class Graph {
         if (!directed) {
             this.adjacencyList.get(to)!.push({ to: from, weight });
         }
-    } 
+    }
 
     /**
      * Constructs a Graph instance from a GeoJSON FeatureCollection.

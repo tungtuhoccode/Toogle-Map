@@ -1,0 +1,253 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Animated A* (With Click-to-Select)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    html, body, #map { margin:0; padding:0; height:100%; }
+    #start-btn, #toggle-visited-btn {
+      position: absolute;
+      left: 10px;
+      z-index: 1;
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    #start-btn { top: 10px; }
+    #toggle-visited-btn { top: 50px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="start-btn">Start</button>
+  <button id="toggle-visited-btn">Hide Visited Nodes</button>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script>
+    // 1) initialize map
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: "https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+      center: [-75.7, 45.39],
+      zoom: 13,
+    });
+    map.repaint = false;   
+    
+    map.addControl(new maplibregl.NavigationControl());
+    // 1.a) log on every repaint
+    map.on('render', () => {
+      console.log('map repainted at', new Date().toLocaleTimeString());
+    });
+    map.on('load', () => {
+      // 2) fetch geojson then hand off to worker
+      fetch('../../Data-Collection/large-ottawa-area.geojson')
+        .then(res => res.json())
+        .then(geojson => {
+          const worker = new Worker('graphWorker.js');
+          worker.postMessage(geojson);
+
+          worker.onmessage = ({ data }) => {
+            console.log("finish loading")
+            const { graph, coordsMap, allKeys, idMap } = data;
+
+            
+
+            // 3) build visited-nodes source + layer
+            const features = allKeys.map((k,i) => ({
+              type: 'Feature',
+              id: i,
+              geometry: { type: 'Point', coordinates: coordsMap[k] },
+              properties: {}
+            }));
+            console.log("Finish building geojson features")
+            map.addSource('visited-nodes', {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features }
+            });
+            map.addLayer({
+              id: 'visited-node-points',
+              type: 'circle',
+              source: 'visited-nodes',
+              paint: {
+                'circle-radius': 2,
+                'circle-opacity': 1,
+                'circle-stroke-width': .5,
+                'circle-stroke-color': '#fff',
+                'circle-color': [
+                  'case',
+                  ['==', ['feature-state','visited'], true], '#FF851B',
+                  '#2ECC40'
+                ]
+              }
+            });
+
+            function resetVisited() {
+              allKeys.forEach(k => {
+                map.setFeatureState(
+                  { source: 'visited-nodes', id: idMap[k] },
+                  { visited: false }
+                );
+              });
+            }
+            resetVisited();
+
+            // 4) A* generator
+            async function* astarGen(graph, start, goal) {
+              const h = u => turf.distance(
+                turf.point(coordsMap[u]),
+                turf.point(coordsMap[goal]),
+                { units: 'kilometers' }
+              );
+
+              const openSet = new Set([start]);
+              const cameFrom = {};
+              const gScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
+              const fScore = Object.fromEntries(allKeys.map(u => [u, Infinity]));
+              gScore[start] = 0; fScore[start] = h(start);
+
+              while (openSet.size) {
+                let current = null, best = Infinity;
+                for (const u of openSet) {
+                  if (fScore[u] < best) { best = fScore[u]; current = u; }
+                }
+                yield current;
+                if (current === goal) break;
+
+                openSet.delete(current);
+                for (const { to: nei, weight: w } of graph[current]) {
+                  const tg = gScore[current] + w;
+                  if (tg < gScore[nei]) {
+                    cameFrom[nei] = current;
+                    gScore[nei]  = tg;
+                    fScore[nei]  = tg + h(nei);
+                    openSet.add(nei);
+                  }
+                }
+              }
+
+              if (gScore[goal] === Infinity) return null;
+              const path = []; let u = goal;
+              while (u) { path.unshift(u); u = cameFrom[u]; }
+              return path;
+            }
+
+            // 5) click to pick start/end
+            let startKey = null, endKey = null;
+            let startMarker, endMarker;
+            map.on('click', e => {
+              const click = [e.lngLat.lng, e.lngLat.lat];
+              let best = Infinity, nearest = null;
+              allKeys.forEach(k => {
+                const [x,y] = coordsMap[k];
+                const d2 = (click[0]-x)**2 + (click[1]-y)**2;
+                if (d2 < best) { best = d2; nearest = k; }
+              });
+              if (!startKey) {
+                startKey = nearest;
+                startMarker = new maplibregl.Marker({ color:'green' })
+                  .setLngLat(coordsMap[nearest]).addTo(map);
+              } else if (!endKey) {
+                endKey = nearest;
+                endMarker = new maplibregl.Marker({ color:'red' })
+                  .setLngLat(coordsMap[nearest]).addTo(map);
+              }
+            });
+
+            // 6) run + animate on Start
+            document.getElementById('start-btn')
+              .addEventListener('click', async () => {
+                if (!startKey || !endKey) {
+                  return alert('Click for start (green) then end (red).');
+                }
+                resetVisited();
+                startMarker?.remove();
+                endMarker?.remove();
+                startMarker = new maplibregl.Marker({ color:'green' })
+                  .setLngLat(coordsMap[startKey]).addTo(map);
+                endMarker   = new maplibregl.Marker({ color:'red' })
+                  .setLngLat(coordsMap[endKey]).addTo(map);
+
+                const btn = document.getElementById('start-btn');
+                btn.disabled = true; btn.textContent = 'Running…';
+
+                const gen = astarGen(graph, startKey, endKey);
+                let step, batch = [];
+                while (!(step = await gen.next()).done) {
+                  batch.push(step.value);
+                  if (batch.length >= 50) {
+                    batch.forEach(k => {
+                      map.setFeatureState(
+                        { source:'visited-nodes', id:idMap[k] },
+                        { visited:true }
+                      );
+                    });
+                    batch.length = 0;
+                    await new Promise(r => setTimeout(r, 0));
+                  }
+                }
+                batch.forEach(k => {
+                  map.setFeatureState(
+                    { source:'visited-nodes', id:idMap[k] },
+                    { visited:true }
+                  );
+                });
+
+                const path = step.value;
+                if (!path) return console.warn('No path found!');
+                const coords = path.map(k => coordsMap[k]);
+
+                if (map.getSource('shortest-path')) {
+                  map.getSource('shortest-path').setData({
+                    type:'FeatureCollection',
+                    features:[{ type:'Feature',
+                                geometry:{ type:'LineString', coordinates:coords },
+                                properties:{} }]
+                  });
+                } else {
+                  map.addSource('shortest-path',{ type:'geojson', data:{
+                    type:'FeatureCollection',
+                    features:[{ type:'Feature',
+                                geometry:{ type:'LineString', coordinates:coords },
+                                properties:{} }]
+                  }});
+                  map.addLayer({
+                    id: 'shortest-path-line',
+                    type: 'line',
+                    source: 'shortest-path',
+                    layout: { 'line-join':'round','line-cap':'round' },
+                    paint: { 'line-color':'#0074D9','line-width':4 }
+                  });
+                }
+
+                btn.textContent = 'Done';
+              });
+
+            // 7) toggle visited-nodes
+            let visitedVisible = true;
+            document.getElementById('toggle-visited-btn')
+              .addEventListener('click', () => {
+                visitedVisible = !visitedVisible;
+                map.setLayoutProperty(
+                  'visited-node-points',
+                  'visibility',
+                  visitedVisible ? 'visible' : 'none'
+                );
+                document.getElementById('toggle-visited-btn').textContent =
+                  visitedVisible ? 'Hide Visited Nodes' : 'Show Visited Nodes';
+              });
+          };
+        })
+        .catch(console.error);
+    });
+  </script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+</body>
+</html>

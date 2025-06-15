@@ -49,8 +49,9 @@
       zoom: 13
     });
     map.addControl(new maplibregl.NavigationControl());
+
     map.on('load', () => {
-      fetch('../../Data-Collection/medium-ottawa-area.geojson')
+      fetch('../../Data-Collection/large-ottawa-area.geojson')
         .then(res => res.json())
         .then(async geojson => {
           // --- build graph & ID/coord maps ---
@@ -76,7 +77,6 @@
             if (!isOneWay) graph[B].push({ to: A, weight: d });
           }
         });
-        console.log(graph)
 
           const allKeys   = Object.keys(graph);
           const idMap     = Object.fromEntries(allKeys.map((k,i) => [k, i]));

@@ -42,14 +42,6 @@
           .then((res) => res.json())
           .then((geojson) => {
             // draw all ways as red lines
-            map.addSource("ways", { type: "geojson", data: geojson });
-            map.addLayer({
-              id: "way-lines",
-              type: "line",
-              source: "ways",
-              layout: { "line-join": "round", "line-cap": "round" },
-              paint: { "line-color": "#e31a1c", "line-width": 2 },
-            });
 
             // fit map to data
             const bbox = turf.bbox(geojson);

@@ -42,6 +42,7 @@ export default function GraphLayers() {
   const [data, setData] = useState<FeatureCollection | null>(null);
   const [showEdges, setShowEdges] = useState(true);
   const [showNodes, setShowNodes] = useState(true);
+  const [graph, setCurrentGraph] = useState<Graph | null>(null)
 
   useEffect(() => {
     fetch("/sample-data/small.geojson")
@@ -51,6 +52,7 @@ export default function GraphLayers() {
       })
       .then((json: FeatureCollection) => 
         {
+          setCurrentGraph(Graph.fromGeoJSON(json))
           setData(json)
         }
       )

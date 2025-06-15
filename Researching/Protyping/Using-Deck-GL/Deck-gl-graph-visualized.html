@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Visualize Overpass Data + Shortest Path (deck.gl) with Reduced Quality & White Borders</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- MapLibre GL CSS -->
+  <link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body, #map {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #deck-canvas {
+      position: absolute;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+    }
+    #map {
+      z-index: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <canvas id="deck-canvas"></canvas>
+
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <!-- turf for distance & bbox -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <!-- deck.gl UMD bundle -->
+  <script src="https://unpkg.com/deck.gl@8.9.0/dist.min.js"></script>
+  <script>
+    // 1️⃣ Initialize MapLibre map (with lower DPR)
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://api.maptiler.com/maps/streets/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
+      center: [-75.7, 45.39],
+      zoom: 13,
+      antialias: false,
+      pixelRatio: 1
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    // 2️⃣ Fetch GeoJSON and build graph
+    fetch('../../Data-Collection/large-ottawa-area.geojson')
+      .then(res => res.ok ? res.json() : Promise.reject(res))
+      .then(geojson => {
+        map.fitBounds(turf.bbox(geojson), { padding: 20 });
+
+        const graph = {};
+        const key = pt => `${pt[0]},${pt[1]}`;
+        geojson.features.forEach(f => {
+          const coords = f.geometry.coordinates;
+          for (let i = 1; i < coords.length; i++) {
+            const a = coords[i - 1], b = coords[i];
+            const A = key(a), B = key(b);
+            const d = turf.distance(turf.point(a), turf.point(b), { units: 'kilometers' });
+            (graph[A] = graph[A] || []).push({ to: B, weight: d });
+            (graph[B] = graph[B] || []).push({ to: A, weight: d });
+          }
+        });
+
+        const nodesData = Object.keys(graph).map(k => {
+          const [lon, lat] = k.split(',').map(Number);
+          return { position: [lon, lat] };
+        });
+        const sampledNodes = nodesData.filter((_, i) => i % 10 === 0);
+
+        // 3️⃣ Initialize deck.gl with white-stroked circles
+        const deckgl = new deck.DeckGL({
+          canvas: 'deck-canvas',
+          width: '100%',
+          height: '100%',
+          useDevicePixels: false,
+          glOptions: { antialias: false },
+          initialViewState: {
+            longitude: map.getCenter().lng,
+            latitude: map.getCenter().lat,
+            zoom: map.getZoom(),
+            pitch: 0,
+            bearing: 0
+          },
+          controller: true,
+          layers: [
+            new deck.ScatterplotLayer({
+              id: 'graph-nodes',
+              data: sampledNodes,
+              getPosition: d => d.position,
+              getFillColor: [46, 204, 64],       // green fill
+              getRadius: 4,                      // meters
+              radiusMinPixels: 3,
+              stroked: true,
+              getLineColor: [255, 255, 255],     // white border
+              lineWidthUnits: 'pixels',
+              getLineWidth: 2,                   // px border width
+              pickable: false
+            })
+          ],
+          onViewStateChange: ({ viewState }) => {
+            map.jumpTo({
+              center: [viewState.longitude, viewState.latitude],
+              zoom: viewState.zoom,
+              pitch: viewState.pitch,
+              bearing: viewState.bearing
+            });
+          }
+        });
+      })
+      .catch(err => console.error('Failed to load data:', err));
+  </script>
+</body>
+</html>
